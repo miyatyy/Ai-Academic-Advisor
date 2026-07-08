@@ -11,6 +11,7 @@ from scipy.spatial import distance as dist
 import dlib
 import os
 import json
+import subprocess
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
@@ -73,6 +74,7 @@ class BukuRepository(db.Model):
     detail_rak = db.Column(db.String(50), nullable=False)
     file_path = db.Column(db.String(255))
     waktu_diupload = db.Column(db.DateTime, default=datetime.now)
+    is_deleted = db.Column(db.Boolean, default=False)
 
 with app.app_context():
     db.create_all()
@@ -192,56 +194,44 @@ def aesthetic_layout(title, content, robot_mode="standby", extra_head=""):
             {three_js_cdn}
             {extra_head}
             <style>
-                /* FIX: Merubah overflow: hidden menjadi overflow-y: auto agar halaman dashboard bisa di-scroll ke bawah */
                 body, html {{ margin: 0; padding: 0; width: 100%; height: 100%; overflow-y: auto; background: #060913; font-family: 'Poppins', sans-serif; }}
-                
-                #canvas3d {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }}
-                
+                #canvas3d {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }}
                 .ui-layer {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; padding: 40px; box-sizing: border-box; pointer-events: none; }}
                 .ui-header {{ text-align: center; pointer-events: auto; margin-top: 10px; }}
                 .ui-header h1 {{ color: #ffffff; font-size: 32px; font-weight: 600; letter-spacing: 2px; text-shadow: 0 4px 20px rgba(0,0,0,0.8); margin: 0; }}
                 .ui-header p {{ color: #00d2ff; font-size: 14px; letter-spacing: 1px; margin: 8px 0 0 0; text-shadow: 0 2px 10px rgba(0,210,255,0.4); }}
-                
-                .ui-center-content {{ background: rgba(6, 9, 19, 0.45); border: 1px solid rgba(255,255,255,0.05); padding: 35px; border-radius: 24px; max-width: 700px; width: 100%; margin: auto; text-align: center; pointer-events: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); box-sizing: border-box; color: #fff; }}
-                
+                .ui-center-content {{ background: rgba(6, 9, 19, 0.45); border: 1px solid rgba(255,255,255,0.05); padding: 35px; border-radius: 24px; max-width: 750px; width: 100%; margin: auto; text-align: center; pointer-events: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); box-sizing: border-box; color: #fff; }}
                 .btn {{ display: inline-block; padding: 14px 35px; border-radius: 14px; font-weight: 600; text-decoration: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-size: 14px; cursor: pointer; border: none; margin: 10px; pointer-events: auto; }}
                 .btn-primary {{ background: linear-gradient(135deg, #00d2ff, #0066ff); color: white; box-shadow: 0 4px 20px rgba(0,102,255,0.4); }}
                 .btn-primary:hover {{ transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,102,255,0.6); }}
                 .btn-secondary {{ background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.1); }}
                 .btn-secondary:hover {{ background: rgba(255,255,255,0.15); transform: translateY(-2px); }}
                 .btn-success {{ background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; box-shadow: 0 4px 15px rgba(46,204,113,0.3); }}
-                
+                .btn-danger {{ background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; box-shadow: 0 4px 15px rgba(231,76,60,0.3); }}
+                .btn-danger:hover {{ transform: translateY(-2px); box-shadow: 0 6px 18px rgba(231,76,60,0.5); }}
                 .input-field {{ width: 100%; padding: 14px; margin: 12px 0; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; border-radius: 10px; font-family: 'Poppins', sans-serif; box-sizing: border-box; }}
-                .input-field:focus {{ border-color: #00d2ff; outline: none; }}
-                
                 table {{ width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; background: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden; }}
                 th, td {{ padding: 14px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }}
                 th {{ background: rgba(0,210,255,0.12); color: #00d2ff; font-weight: 600; }}
                 td {{ color: #e2e8f0; }}
-
                 .status-node {{ font-size: 12px; font-weight: 600; letter-spacing: 1px; color: #00d2ff; margin-bottom: 15px; text-transform: uppercase; text-shadow: 0 0 10px rgba(0,210,255,0.5); }}
                 .success-node {{ color: #2ecc71 !important; text-shadow: 0 0 10px rgba(46,204,113,0.5) !important; }}
             </style>
         </head>
         <body>
             <div id="canvas3d"></div>
-
             <div class="ui-layer">
                 <div class="ui-header">
                     <h1>Sistem Cerdas Informasi Perpustakaan</h1>
                     <p>AI Academic Advisor & Biometric Security Gate</p>
                 </div>
-
                 <div class="ui-center-content">
-                    <div class="status-node {'success-node' if robot_mode == 'success' else ''}">
-                        {'✨ SYSTEM: VERIFIKASI SELESAI, WELCOME! ✨' if robot_mode == 'success' else '📡 SYSTEM: MENUNGGU DETEKSI WAJAH & KEDIPAN MATA... 📡'}
+                    <div class="status-node {{'success-node' if robot_mode == 'success' else ''}}">
+                        {{'✨ SYSTEM: VERIFIKASI SELESAI, WELCOME! ✨' if robot_mode == 'success' else '📡 SYSTEM: MENUNGGU DETEKSI WAJAH & KEDIPAN MATA... 📡'}}
                     </div>
                     {content}
                 </div>
-                
-                <div style="text-align: center; color: rgba(255,255,255,0.2); font-size: 11px; letter-spacing: 1px;">
-                    UIN ANTASARI BANJARMASIN • TEKNOLOGI INFORMASI
-                </div>
+                <div style="text-align: center; color: rgba(255,255,255,0.2); font-size: 11px; letter-spacing: 1px;">UIN ANTASARI BANJARMASIN • TEKNOLOGI INFORMASI</div>
             </div>
 
             <script>
@@ -257,139 +247,62 @@ def aesthetic_layout(title, content, robot_mode="standby", extra_head=""):
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 container.appendChild(renderer.domElement);
 
-                const ambientLight = new THREE.AmbientLight(0x222a45, 1.8);
-                scene.add(ambientLight);
-
-                const blueLight = new THREE.DirectionalLight(0x00d2ff, 1.5);
-                blueLight.position.set(-6, 6, 5);
-                scene.add(blueLight);
-
-                const orangeLight = new THREE.DirectionalLight(0xe67e22, 1.2);
-                orangeLight.position.set(6, 6, 5);
-                scene.add(orangeLight);
+                const ambientLight = new THREE.AmbientLight(0x222a45, 1.8); scene.add(ambientLight);
+                const blueLight = new THREE.DirectionalLight(0x00d2ff, 1.5); blueLight.position.set(-6, 6, 5); scene.add(blueLight);
+                const orangeLight = new THREE.DirectionalLight(0xe67e22, 1.2); orangeLight.position.set(6, 6, 5); scene.add(orangeLight);
 
                 const starsGeom = new THREE.BufferGeometry();
                 const starsCount = 500;
                 const starPositions = new Float32Array(starsCount * 3);
-                for(let i=0; i<starsCount*3; i++) {{
-                    starPositions[i] = (Math.random() - 0.5) * 25;
-                }}
+                for(let i=0; i<starsCount*3; i++) {{ starPositions[i] = (Math.random() - 0.5) * 25; }}
                 starsGeom.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
                 const starsMat = new THREE.PointsMaterial({{ color: 0xffffff, size: 0.035, transparent: true, opacity: 0.7 }});
-                const starParticles = new THREE.Points(starsGeom, starsMat);
-                scene.add(starParticles);
+                const starParticles = new THREE.Points(starsGeom, starsMat); scene.add(starParticles);
 
-                // WALL-E MODEL
+                // WALL-E
                 const walle = new THREE.Group();
-                const wBodyGeom = new THREE.BoxGeometry(1.6, 1.5, 1.5);
-                const wBodyMat = new THREE.MeshStandardMaterial({{ color: 0xe67e22, roughness: 0.3, metalness: 0.3 }});
-                const wBody = new THREE.Mesh(wBodyGeom, wBodyMat);
-                walle.add(wBody);
-
-                const wPlateGeom = new THREE.BoxGeometry(1.2, 1.0, 0.06);
-                const wPlateMat = new THREE.MeshStandardMaterial({{ color: 0xbdc3c7, roughness: 0.4 }});
-                const wPlate = new THREE.Mesh(wPlateGeom, wPlateMat);
-                wPlate.position.set(0, 0, 0.76);
-                walle.add(wPlate);
-
+                const wBody = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.5, 1.5), new THREE.MeshStandardMaterial({{ color: 0xe67e22, roughness: 0.3, metalness: 0.3 }})); walle.add(wBody);
+                const wPlate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.0, 0.06), new THREE.MeshStandardMaterial({{ color: 0xbdc3c7, roughness: 0.4 }})); wPlate.position.set(0, 0, 0.76); walle.add(wPlate);
+                
                 const eyeGroup = new THREE.Group();
-                const wEyeGeom = new THREE.CylinderGeometry(0.36, 0.28, 0.6, 32);
-                const wEyeMat = new THREE.MeshStandardMaterial({{ color: 0x2c3e50, roughness: 0.2 }});
-                const wLensMat = new THREE.MeshBasicMaterial({{ color: "{0x2ecc71 if robot_mode == 'success' else 0x050505}" }});
-
-                const wEyeL = new THREE.Mesh(wEyeGeom, wEyeMat);
-                wEyeL.rotation.x = Math.PI / 2;
-                wEyeL.position.set(-0.4, 1.1, 0.1);
-                eyeGroup.add(wEyeL);
-
-                const wLensL = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.05, 32), wLensMat);
-                wLensL.rotation.x = Math.PI / 2;
-                wLensL.position.set(-0.4, 1.1, 0.4);
-                eyeGroup.add(wLensL);
-
+                const wEyeL = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.28, 0.6, 32), new THREE.MeshStandardMaterial({{ color: 0x2c3e50, roughness: 0.2 }})); wEyeL.rotation.x = Math.PI / 2; wEyeL.position.set(-0.4, 1.1, 0.1); eyeGroup.add(wEyeL);
+                const wLensL = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.05, 32), new THREE.MeshBasicMaterial({{ color: \"{0x2ecc71 if robot_mode == 'success' else 0x050505}\" }})); wLensL.rotation.x = Math.PI / 2; wLensL.position.set(-0.4, 1.1, 0.4); eyeGroup.add(wLensL);
                 const wEyeR = wEyeL.clone(); wEyeR.position.x = 0.4; eyeGroup.add(wEyeR);
                 const wLensR = wLensL.clone(); wLensR.position.x = 0.4; eyeGroup.add(wLensR);
                 walle.add(eyeGroup);
-
-                const trackGeom = new THREE.BoxGeometry(1.9, 0.4, 1.6);
-                const trackMat = new THREE.MeshStandardMaterial({{ color: 0x161d26, roughness: 0.8 }});
-                const wTracks = new THREE.Mesh(trackGeom, trackMat);
-                wTracks.position.y = -0.9;
-                walle.add(wTracks);
-
+                
+                const wTracks = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.4, 1.6), new THREE.MeshStandardMaterial({{ color: 0x161d26, roughness: 0.8 }})); wTracks.position.y = -0.9; walle.add(wTracks);
                 scene.add(walle);
 
-                // EVE MODEL
+                // EVE
                 const eve = new THREE.Group();
-                const eBodyGeom = new THREE.CylinderGeometry(0.65, 0.35, 1.8, 32);
-                const eBodyMat = new THREE.MeshStandardMaterial({{ color: 0xffffff, roughness: 0.02, metalness: 0.15 }});
-                const eveBody = new THREE.Mesh(eBodyGeom, eBodyMat);
-                eve.add(eveBody);
-
-                const eHeadGeom = new THREE.SphereGeometry(0.63, 32, 32);
-                const eveHead = new THREE.Mesh(eHeadGeom, eBodyMat);
-                eveHead.position.y = 1.05;
-                eveHead.scale.set(1, 0.85, 1);
-                eve.add(eveHead);
-
-                const eScreenGeom = new THREE.SphereGeometry(0.48, 32, 16, 0, Math.PI*2, 0, Math.PI/2);
-                const eScreenMat = new THREE.MeshBasicMaterial({{ color: 0x050505 }});
-                const eveScreen = new THREE.Mesh(eScreenGeom, eScreenMat);
-                eveScreen.position.set(0, 1.06, 0.23);
-                eveScreen.rotation.x = Math.PI / 2.3;
-                eve.add(eveScreen);
-
-                const eEyeGeom = new THREE.SphereGeometry(0.08, 16, 16);
-                const eEyeMat = new THREE.MeshBasicMaterial({{ color: "{0x2ecc71 if robot_mode == 'success' else 0x00d2ff}" }});
-                
-                const eveEyeL = new THREE.Mesh(eEyeGeom, eEyeMat);
-                eveEyeL.position.set(-0.16, 1.15, 0.62);
-                eve.add(eveEyeL);
-
+                const eveBody = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.35, 1.8, 32), new THREE.MeshStandardMaterial({{ color: 0xffffff, roughness: 0.02, metalness: 0.15 }})); eve.add(eveBody);
+                const eveHead = new THREE.Mesh(new THREE.SphereGeometry(0.63, 32, 32), new THREE.MeshStandardMaterial({{ color: 0xffffff, roughness: 0.02 }})); eveHead.position.y = 1.05; eveHead.scale.set(1, 0.85, 1); eve.add(eveHead);
+                const eveScreen = new THREE.Mesh(new THREE.SphereGeometry(0.48, 32, 16, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshBasicMaterial({{ color: 0x050505 }})); eveScreen.position.set(0, 1.06, 0.23); eveScreen.rotation.x = Math.PI / 2.3; eve.add(eveScreen);
+                const eveEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), new THREE.MeshBasicMaterial({{ color: \"{0x2ecc71 if robot_mode == 'success' else 0x00d2ff}\" }})); eveEyeL.position.set(-0.16, 1.15, 0.62); eve.add(eveEyeL);
                 const eveEyeR = eveEyeL.clone(); eveEyeR.position.x = 0.16; eve.add(eveEyeR);
-
                 scene.add(eve);
 
                 let clock = 0;
                 function animate() {{
                     requestAnimationFrame(animate);
                     clock += 0.02;
-
                     starParticles.rotation.y = clock * 0.015;
 
                     if ("{robot_mode}" === "success") {{
-                        walle.position.x = Math.sin(clock * 2) * 2.5;
-                        walle.position.y = Math.cos(clock * 2) * 1.5;
-                        walle.rotation.y += 0.05;
-
-                        eve.position.x = -Math.sin(clock * 2) * 2.5;
-                        eve.position.y = -Math.cos(clock * 2) * 1.5;
-                        eve.rotation.y -= 0.05;
+                        walle.position.x = Math.sin(clock * 2) * 2.5; walle.position.y = Math.cos(clock * 2) * 1.5; walle.rotation.y += 0.05;
+                        eve.position.x = -Math.sin(clock * 2) * 2.5; eve.position.y = -Math.cos(clock * 2) * 1.5; eve.rotation.y -= 0.05;
                     }} else {{
-                        walle.position.x = Math.sin(clock) * 5.5;
-                        walle.position.y = Math.cos(clock * 1.5) * 2.2;
-                        walle.position.z = Math.sin(clock * 0.5) * 1.5;
-                        
-                        walle.rotation.y = clock * 0.5;
-                        walle.rotation.x = Math.sin(clock) * 0.2;
-
-                        eve.position.x = -Math.sin(clock * 0.8) * 5.5; 
-                        eve.position.y = Math.sin(clock * 1.2) * 2.2;
-                        eve.position.z = Math.cos(clock * 0.6) * 1.5;
-                        
-                        eve.rotation.y = -clock * 0.6;
-                        eve.rotation.z = Math.cos(clock) * 0.15;
+                        walle.position.x = Math.sin(clock) * 5.5; walle.position.y = Math.cos(clock * 1.5) * 2.2; walle.position.z = Math.sin(clock * 0.5) * 1.5;
+                        walle.rotation.y = clock * 0.5; walle.rotation.x = Math.sin(clock) * 0.2;
+                        eve.position.x = -Math.sin(clock * 0.8) * 5.5; eve.position.y = Math.sin(clock * 1.2) * 2.2; eve.position.z = Math.cos(clock * 0.6) * 1.5;
+                        eve.rotation.y = -clock * 0.6; eve.rotation.z = Math.cos(clock) * 0.15;
                     }}
-
                     renderer.render(scene, camera);
                 }}
                 animate();
 
-                window.addEventListener('resize', () => {{
-                    camera.aspect = window.innerWidth / window.innerHeight;
-                    camera.updateProjectionMatrix();
-                    renderer.setSize(window.innerWidth, window.innerHeight);
-                }});
+                window.addEventListener('resize', () => {{ camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }});
             </script>
         </body>
     </html>
@@ -472,7 +385,7 @@ def admin_logout():
     return redirect(url_for('index'))
 
 # =========================================================================
-# DASHBOARD MAHASISWA (FIXED: JEDA DIUBAH MENJADI 10 DETIK REAL)
+# DASHBOARD MAHASISWA (DURASI 10 DETIK)
 # =========================================================================
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
@@ -491,7 +404,6 @@ def dashboard():
     extra_head = "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>"
     content = f"""
     <div style="background: rgba(46, 204, 113, 0.2); border: 1px solid #2ecc71; padding: 10px; border-radius: 8px; margin-bottom: 25px; color: #2ecc71; font-size: 13px; font-weight: 600;">
-        /* FIX: Menyesuaikan teks notifikasi agar selaras dengan waktu 10 detik */
         ⏱️ Transmisi Sukses! Layar kembali otomatis ke mode standby dalam <span id="countdown" style="font-size:16px; color:#ff4d4f; font-weight:bold;">10</span> detik...
     </div>
     <h3 style="color:#fff; margin:0;">Layanan Pintar Mahasiswa</h3>
@@ -515,7 +427,6 @@ def dashboard():
     <a href="/logout_mahasiswa" class="btn btn-secondary" style="width: 100%; box-sizing:border-box; margin:0;">Keluar Sekarang</a>
 
     <script>
-        /* FIX: Mengganti variabel durasi hitung mundur dari 5 menjadi 10 detik */
         var seconds = 10; 
         var countdownElement = document.getElementById("countdown");
         var interval = setInterval(function() {{
@@ -591,28 +502,31 @@ def scan_meja(no_meja):
     return aesthetic_layout(f"Scan Meja {no_meja}", content_hp, robot_mode="standby")
 
 # =========================================================================
-# DASHBOARD ADMIN
+# DASHBOARD ADMIN (FITUR LENGKAP: CHART + CRUD BUKU + CRUD MAHASISWA)
 # =========================================================================
 @app.route('/admin_dashboard', methods=['GET', 'POST'])
 def admin_dashboard():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
 
+    # ACTION 1: TAMBAH BUKU BARU (CREATE BUKU)
     if request.method == 'POST' and 'tambah_buku' in request.form:
         buku_baru = BukuRepository(judul_buku=request.form['judul_buku'], penulis=request.form['penulis'], detail_rak=request.form['detail_rak'])
         db.session.add(buku_baru)
         db.session.commit()
 
+    # ACTION 2: EDIT DATA MAHASISWA (UPDATE MAHASISWA)
     if request.method == 'POST' and 'edit_mahasiswa' in request.form:
         mhs_diubah = Mahasiswa.query.get(request.form['mhs_id'])
         if mhs_diubah:
-            mhs_diubah.nama, mhs_diubah.nim, mhs_diubah.prodi = request.form['nama_baru'], request.form['nim_baru'], request.form['prodi_baru']
+            mhs_diubah.nama = request.form['nama_baru']
+            mhs_diubah.nim = request.form['nim_baru']
+            mhs_diubah.prodi = request.form['prodi_baru']
             db.session.commit()
             reload_face_encodings()
 
-    filter_type = request.args.get('filter', 'all')
-    query_kunjungan = Kunjungan.query
-    list_kunjungan = query_kunjungan.order_by(Kunjungan.waktu_kunjungan.desc()).all()
+    list_kunjungan = Kunjungan.query.order_by(Kunjungan.waktu_kunjungan.desc()).all()
     daftar_mahasiswa = Mahasiswa.query.all()
+    daftar_buku_aktif = BukuRepository.query.filter_by(is_deleted=False).all()
 
     rekap_fakultas = db.session.query(Mahasiswa.prodi, db.func.count(Kunjungan.id)).join(Kunjungan, Mahasiswa.id == Kunjungan.mahasiswa_id).group_by(Mahasiswa.prodi).all()
     labels_chart, data_chart = [str(f[0]) if f[0] else "Umum" for f in rekap_fakultas], [int(f[1]) for f in rekap_fakultas]
@@ -621,13 +535,55 @@ def admin_dashboard():
     content = f"""
     <div style="text-align: left;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <h3 style="color:#fff; margin:0;">Panel Pemantauan Log Pusat</h3>
-            <a href="/admin_logout" class="btn btn-secondary" style="padding:5px 15px; font-size:11px; margin:0;">Logout Staf</a>
+            <h2 style="color:#fff; margin:0;">Panel Pemantauan Log Pusat</h2>
+            <div>
+                <a href="/admin/recycle_bin" class="btn btn-secondary" style="padding:8px 18px; font-size:12px; background: rgba(241,196,15,0.15); border-color: #f1c40f; color: #f1c40f;">🗑️ Kotak Sampah</a>
+                <a href="/admin/backup_database" class="btn btn-secondary" style="padding:8px 18px; font-size:12px; background: rgba(52,152,219,0.15); border-color: #3498db; color: #3498db;">💾 Backup Data</a>
+                <a href="/admin_logout" class="btn btn-secondary" style="padding:8px 18px; font-size:12px; margin-left:5px;">Logout Staf</a>
+            </div>
         </div>
-        <div class="charts-grid" style="margin-bottom:25px;">
-            <div class="chart-container" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); padding:15px; border-radius:10px;"><h4 style="margin:0 0 10px 0; font-size:12px; color:#00d2ff;">Proporsi Distribusi Fakultas</h4><canvas id="pieChart" style="max-height:160px;"></canvas></div>
-            <div class="chart-container" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); padding:15px; border-radius:10px;"><h4 style="margin:0 0 10px 0; font-size:12px; color:#00d2ff;">Total Frekuensi Kunjungan</h4><canvas id="barChart" style="max-height:160px;"></canvas></div>
+        
+        <div class="charts-grid" style="margin-bottom:25px; display:flex; gap:15px;">
+            <div class="chart-container" style="flex:1; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); padding:15px; border-radius:10px;"><h4 style="margin:0 0 10px 0; font-size:12px; color:#00d2ff;">Proporsi Distribusi Fakultas</h4><canvas id="pieChart" style="max-height:160px;"></canvas></div>
+            <div class="chart-container" style="flex:1; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); padding:15px; border-radius:10px;"><h4 style="margin:0 0 10px 0; font-size:12px; color:#00d2ff;">Total Frekuensi Kunjungan</h4><canvas id="barChart" style="max-height:160px;"></canvas></div>
         </div>
+
+        <div style="display:flex; gap:20px; margin-bottom:30px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:300px; background:rgba(255,255,255,0.02); padding:20px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
+                <h3 style="color:#fff; margin-top:0; font-size:16px;">[➕] Tambah Koleksi Buku</h3>
+                <form method="POST">
+                    <input type="hidden" name="tambah_buku" value="1">
+                    <input type="text" name="judul_buku" class="input-field" placeholder="Judul Buku Baru" required>
+                    <input type="text" name="penulis" class="input-field" placeholder="Nama Penulis" required>
+                    <input type="text" name="detail_rak" class="input-field" placeholder="Kode / Lokasi Rak" required>
+                    <button type="submit" class="btn btn-success" style="width:100%; margin:10px 0 0 0; padding:10px;">Simpan Buku</button>
+                </form>
+            </div>
+
+            <div style="flex:1; min-width:300px; background:rgba(255,255,255,0.02); padding:20px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
+                <h3 style="color:#fff; margin-top:0; font-size:16px;">[✏️] Edit Profil Mahasiswa</h3>
+                <form method="POST">
+                    <input type="hidden" name="edit_mahasiswa" value="1">
+                    <select name="mhs_id" class="input-field" style="background:#1a1f2c; color:#fff;">
+                        {"".join([f"<option value='{m.id}'>{m.nama} ({m.nim})</option>" for m in daftar_mahasiswa])}
+                    </select>
+                    <input type="text" name="nama_baru" class="input-field" placeholder="Perbarui Nama Lengkap" required>
+                    <input type="text" name="nim_baru" class="input-field" placeholder="Perbarui NIM" required>
+                    <input type="text" name="prodi_baru" class="input-field" placeholder="Perbarui Program Studi" required>
+                    <button type="submit" class="btn btn-primary" style="width:100%; margin:10px 0 0 0; padding:10px; background: linear-gradient(135deg, #e67e22, #d35400); box-shadow:none;">Update Biodata</button>
+                </form>
+            </div>
+        </div>
+
+        <h3 style="color:#fff; margin-top:25px;">[📚] Manajemen Koleksi Buku Aktif</h3>
+        <table>
+            <thead><tr><th>Judul Buku</th><th>Penulis</th><th>Lokasi Rak</th><th>Tindakan</th></tr></thead>
+            <tbody>
+                {"".join([f"<tr><td><b>{b.judul_buku}</b></td><td>{b.penulis}</td><td>{b.detail_rak}</td><td><a href='/admin/hapus_buku/{b.id}' class='btn btn-danger' style='padding:5px 12px; font-size:11px; margin:0;'>Buang</a></td></tr>" for b in daftar_buku_aktif]) if daftar_buku_aktif else "<tr><td colspan='4'>Tidak ada koleksi buku aktif.</td></tr>"}
+            </tbody>
+        </table>
+        
+        <h3 style="color:#fff; margin-top:35px;">[📋] Riwayat Presensi & Aktivitas Belajar</h3>
         <table id="rekapTable">
             <thead><tr><th>Nama Lengkap</th><th>NIM</th><th>Waktu Presensi</th><th>Buku Dibaca</th></tr></thead>
             <tbody>
@@ -640,11 +596,88 @@ def admin_dashboard():
         const colors = ['#00d2ff', '#2ecc71', '#e67e22', '#e74c3c'];
         const chartOpt = {{ plugins: {{ legend: {{ labels: {{ color: '#fff' }} }} }} }};
         new Chart(document.getElementById('pieChart'), {{ type: 'pie', data: {{ labels: {json.dumps(labels_chart)}, datasets: [{{ data: {json.dumps(data_chart)}, backgroundColor: colors }}] }}, options: chartOpt }});
-        /* FIX: Menghapus tanda potong titik akhir pada baris inisialisasi bar chart admin */
         new Chart(document.getElementById('barChart'), {{ type: 'bar', data: {{ labels: {json.dumps(labels_chart)}, datasets: [{{ data: {json.dumps(data_chart)}, backgroundColor: '#00d2ff' }}] }}, options: {{ indexAxis: 'y', plugins:{{legend:{{display:false}}}}, scales:{{x:{{ticks:{{color:'#fff'}},grid:{{color:'rgba(255,255,255,0.03)'}}}},y:{{ticks:{{color:'#fff'}},grid:{{color:'rgba(255,255,255,0.03)'}}}}}} }} }});
     </script>
     """
     return aesthetic_layout("Dashboard Admin Control Center", content, robot_mode="success", extra_head=extra_head)
+
+# =========================================================================
+# NEW OPERATIONS: SOFT DELETE, RECYCLE BIN SYSTEM & DATABASE BACKUP
+# =========================================================================
+@app.route('/admin/hapus_buku/<int:id>')
+def hapus_buku_sementara(id):
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    buku = BukuRepository.query.get(id)
+    if buku:
+        buku.is_deleted = True
+        db.session.commit()
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/recycle_bin')
+def recycle_bin_page():
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    buku_terhapus = BukuRepository.query.filter_by(is_deleted=True).all()
+    
+    content = f"""
+    <h2 style="color:#fff; margin-bottom:5px;">🗑️ Kotak Sampah Digital (Recycle Bin)</h2>
+    <p style="color:#a0aec0; margin-bottom:20px;">Daftar aset data buku yang dihapus sementara. Anda dapat memulihkan kembali data ke dashboard.</p>
+    <table>
+        <thead><tr><th>Judul Buku</th><th>Penulis</th><th>Manajemen Aset</th></tr></thead>
+        <tbody>
+            {"".join([f"<tr><td><b>{b.judul_buku}</b></td><td>{b.penulis}</td><td><a href='/admin/restore_buku/{b.id}' class='btn btn-success' style='padding:5px 12px; font-size:11px; margin-right:5px;'>Pulihkan</a><a href='/admin/hapus_permanen_buku/{b.id}' class='btn btn-danger' style='padding:5px 12px; font-size:11px; margin:0;'>Hapus Absolut</a></td></tr>" for b in buku_terhapus]) if buku_terhapus else "<tr><td colspan='3'>Kotak sampah kosong. Tidak ada data yang dibuang.</td></tr>"}
+        </tbody>
+    </table>
+    <div style="margin-top:30px;">
+        <a href="/admin_dashboard" class="btn btn-secondary" style="margin:0;">← Kembali ke Dashboard Utama</a>
+    </div>
+    """
+    return aesthetic_layout("Recycle Bin Panel Control", content, robot_mode="success")
+
+@app.route('/admin/restore_buku/<int:id>')
+def restore_buku(id):
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    buku = BukuRepository.query.get(id)
+    if buku:
+        buku.is_deleted = False
+        db.session.commit()
+    return redirect(url_for('recycle_bin_page'))
+
+@app.route('/admin/hapus_permanen_buku/<int:id>')
+def hapus_permanen_buku(id):
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    buku = BukuRepository.query.get(id)
+    if buku:
+        db.session.delete(buku)
+        db.session.commit()
+    return redirect(url_for('recycle_bin_page'))
+
+@app.route('/admin/backup_database')
+def backup_database():
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    backup_dir = "database_backups"
+    os.makedirs(backup_dir, exist_ok=True)
+    filename = f"{backup_dir}/backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+    
+    try:
+        os.environ['PGPASSWORD'] = '140203'
+        command = f"pg_dump -U postgres -h localhost -p 5432 -F p -b -v -f {filename} db_ai_advisor"
+        subprocess.run(command, shell=True, check=True)
+        
+        status_msg = f"""
+        <h3 style="color:#2ecc71; margin-bottom:5px;">✔️ Pembuatan Cadangan Sukses!</h3>
+        <p style="color:#e2e8f0;">Log snapshot baris relasional PostgreSQL telah diekstraksi secara terstruktur.</p>
+        <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:10px; border:1px solid rgba(255,255,255,0.05); margin:20px 0; font-family:monospace; font-size:12px; color:#00d2ff; text-align:left;">
+            📂 File Path: {filename}
+        </div>
+        <a href="/admin_dashboard" class="btn btn-primary" style="margin:0;">Kembali ke Monitor Pusat</a>
+        """
+    except Exception as e:
+        status_msg = f"""
+        <h3 style="color:#e74c3c; margin-bottom:5px;">❌ Ekstraksi Cadangan Gagal!</h3>
+        <p style="color:#ff4d4f; font-size:13px;">Kegagalan subproses: {str(e)}</p>
+        <a href="/admin_dashboard" class="btn btn-secondary" style="margin:20px 0 0 0;">Kembali</a>
+        """
+    return aesthetic_layout("Database Automated Backup Engine", status_msg, robot_mode="success")
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
